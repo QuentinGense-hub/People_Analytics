@@ -525,22 +525,32 @@ def prepare_numeric_anomaly_data(
     excluded = set(drop_columns or [])
     excluded.add(TARGET_COLUMN)
 
-    numeric_cols = [
-        col
-        for col in data.columns
-        if col not in excluded and pd.api.types.is_numeric_dtype(data[col])
-    ]
+    feature_cols = [col for col in data.columns if col not in excluded]
+    numeric_cols = [col for col in feature_cols if pd.api.types.is_numeric_dtype(data[col])]
+    categorical_cols = [col for col in feature_cols if not pd.api.types.is_numeric_dtype(data[col])]
 
     numeric_frame = data[numeric_cols].copy()
     medians = numeric_frame.median()
     numeric_frame = numeric_frame.fillna(medians)
 
+    categorical_frame = data[categorical_cols].copy()
+    for col in categorical_cols:
+        mode = categorical_frame[col].mode(dropna=True)
+        replacement = mode.iloc[0] if not mode.empty else "Unknown"
+        categorical_frame[col] = categorical_frame[col].fillna(replacement)
+
+    if categorical_cols:
+        categorical_encoded = pd.get_dummies(categorical_frame, drop_first=False).astype(float)
+        feature_frame = pd.concat([numeric_frame, categorical_encoded], axis=1)
+    else:
+        feature_frame = numeric_frame.copy()
+
     y = data[TARGET_COLUMN].astype(int).to_numpy()
     train_idx, val_idx, test_idx = stratified_split_indices(y, seed=seed)
 
-    X_train = numeric_frame.iloc[train_idx].copy()
-    X_val = numeric_frame.iloc[val_idx].copy()
-    X_test = numeric_frame.iloc[test_idx].copy()
+    X_train = feature_frame.iloc[train_idx].copy()
+    X_val = feature_frame.iloc[val_idx].copy()
+    X_test = feature_frame.iloc[test_idx].copy()
 
     means = X_train.mean(axis=0)
     stds = X_train.std(axis=0).replace(0, 1)
@@ -556,7 +566,7 @@ def prepare_numeric_anomaly_data(
         y_train=y[train_idx],
         y_val=y[val_idx],
         y_test=y[test_idx],
-        feature_names=numeric_cols,
+        feature_names=feature_frame.columns.tolist(),
         medians=medians,
         means=means,
         stds=stds,

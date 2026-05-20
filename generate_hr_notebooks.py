@@ -70,6 +70,7 @@ correlation_with_attrition = utils.correlation_with_attrition
 dataset_overview = utils.dataset_overview
 kpi_table = utils.kpi_table
 load_data = utils.load_data
+add_derived_columns = utils.add_derived_columns
 missing_summary = utils.missing_summary
 numeric_summary = utils.numeric_summary
 plot_bar = utils.plot_bar
@@ -88,7 +89,11 @@ find_best_threshold = utils.find_best_threshold
 classification_metrics = utils.classification_metrics
 
 DATA_PATH = PROJECT_ROOT / "raw" / "people_analytics_dataset.csv"
-df = load_data(DATA_PATH)
+raw_df = pd.read_csv(DATA_PATH)
+duplicate_employee_ids = int(raw_df["employee_id"].duplicated().sum()) if "employee_id" in raw_df.columns else 0
+source_row_count = len(raw_df)
+df = add_derived_columns(raw_df.drop_duplicates(subset=["employee_id"]).copy())
+clean_row_count = len(df)
 pd.set_option("display.max_columns", 100)
 """
 
@@ -100,7 +105,7 @@ NOTEBOOKS = {
                 """
 # Partie 1 - Analyse Exploratoire des Donnees
 
-Ce notebook documente l'exploration initiale du dataset RH : structure, qualite des donnees, distributions, premiers signaux sur l'attrition et variables potentiellement utiles pour la suite du projet.
+Ce notebook repart du dataset actuel et documente l'exploration initiale des donnees RH : structure, qualite, variables disponibles, premiers signaux sur l'attrition et points de vigilance pour la suite du projet.
 """
             ),
             code_cell(IMPORT_BLOCK),
@@ -108,12 +113,24 @@ Ce notebook documente l'exploration initiale du dataset RH : structure, qualite 
                 """
 ## 1. Chargement et vue d'ensemble
 
-On commence par verifier la taille du dataset, le taux d'attrition et la presence de donnees manquantes.
+On commence par verifier la taille du dataset, le taux d'attrition et les principaux points de qualite de donnees.
 """
             ),
             code_cell(
                 """
 dataset_overview(df)
+"""
+            ),
+            code_cell(
+                """
+pd.DataFrame(
+    [
+        ("Lignes source", source_row_count),
+        ("Lignes apres dedoublonnage employee_id", clean_row_count),
+        ("Doublons employee_id supprimes", duplicate_employee_ids),
+    ],
+    columns=["Controle", "Valeur"],
+)
 """
             ),
             code_cell(
@@ -125,7 +142,12 @@ df.head()
                 """
 ## 2. Variables et qualite de donnees
 
-Le CSV reel contient 28 variables. Par rapport a l'enonce initial, on note notamment la presence de `years_at_company` et `accented_name_flag`, tandis que `salary_band` n'est pas present.
+Le CSV reel contient 28 variables source. Par rapport a l'enonce initial, deux variables meritent une attention particuliere :
+
+- `years_at_company`, utile pour analyser l'anciennete et la retention
+- `accented_name_flag`, variable sensible a traiter avec prudence d'un point de vue ethique
+
+Le champ `salary_band` n'est pas present dans le fichier.
 """
             ),
             code_cell(
@@ -138,11 +160,19 @@ missing_summary(df)
 numeric_summary(df).head(15)
 """
             ),
+            code_cell(
+                """
+display(attrition_by_group(df, "accented_name_flag", ascending=False))
+
+years_at_company_quartile = pd.qcut(df["years_at_company"], 4, duplicates="drop")
+(df.groupby(years_at_company_quartile, observed=False)["attrition"].mean() * 100).round(2)
+"""
+            ),
             md_cell(
                 """
 ## 3. Distribution de la cible
 
-L'attrition represente desormais environ **18,8 %** des effectifs. La classe positive reste minoritaire, mais le desequilibre est nettement moins extreme que dans la version precedente du dataset, ce qui rend la prediction plus exploitable.
+L'attrition represente environ **18,8 %** des effectifs apres dedoublonnage. La classe positive reste minoritaire, mais le niveau de desequilibre est compatible avec une analyse supervisee exploitable.
 """
             ),
             code_cell(
@@ -170,10 +200,12 @@ Cette section cherche a identifier les segments ou le turnover semble plus eleve
 attrition_department = attrition_by_group(df, "department")
 attrition_country = attrition_by_group(df, "country")
 attrition_remote = attrition_by_group(df, "remote_band", ascending=True)
+top_segments = top_attrition_segments(df, ["department", "country"], min_count=120, top_n=10)
 
 display(attrition_department)
 display(attrition_country)
 display(attrition_remote)
+display(top_segments)
 """
             ),
             code_cell(
@@ -231,11 +263,110 @@ plot_correlation_heatmap(
                 """
 ## 6. Faits marquants EDA
 
-- Le dataset couvre **8 020 collaborateurs** et presente un **taux d'attrition de 18,8 %**.
+- Le dataset source contient **8 020 lignes**, dont **20 doublons exacts d'`employee_id`**. L'analyse repose donc sur **8 000 collaborateurs uniques**.
 - Les principales valeurs manquantes concernent `performance_rating`, `engagement_score` et `salary`, mais dans des proportions limitees.
 - Les pays et departements ne sont pas exposes de maniere uniforme : **l'Espagne** et **la France** sont les pays les plus touches, tandis que **HR** et **Finance** ressortent comme les departements les plus exposes.
-- Les collaborateurs partis montrent en moyenne un **engagement plus bas**, une **securite psychologique beaucoup plus faible**, **davantage d'absences**, **plus d'heures supplementaires**, **moins de mobilite interne** et un **salaire un peu plus faible**.
-- Le signal apparait plus structure qu'auparavant, en particulier autour de l'**absenteisme**, de la **securite psychologique**, des **heures supplementaires** et de la **mobilite interne**.
+- Les collaborateurs partis montrent en moyenne un **engagement plus bas**, une **securite psychologique beaucoup plus faible**, **davantage d'absences**, **plus d'heures supplementaires**, **moins de mobilite interne** et une **anciennete plus faible**.
+- Les variables `years_at_company` et `accented_name_flag`, absentes du brief initial, apportent une lecture complementaire. L'anciennete plus faible est associee a davantage d'attrition, tandis que `accented_name_flag` devra etre traite avec prudence dans l'analyse et surtout dans le modele.
+"""
+            ),
+            md_cell(
+                """
+## 7. Validation d'hypotheses complementaires
+
+Cette section teste plusieurs hypotheses d'analyse plus fines sur le dataset actuel. L'objectif est de verifier ce qui est vraiment confirme par les donnees, ce qui reste nuance, et ce qui ne doit pas etre surinterprete.
+"""
+            ),
+            code_cell(
+                """
+visibility_by_remote = df.groupby("remote_ratio")["visibility_score"].mean().round(2)
+promotion_by_remote = (df.groupby("remote_ratio")["promotion_last_3y"].mean() * 100).round(2)
+
+age_mobility_rows = []
+for label, mask_age in {
+    "22-30": df["age"].between(22, 30),
+    "31-40": df["age"].between(31, 40),
+    "41+": df["age"] >= 41,
+}.items():
+    for mobility_label, mobility_mask in {
+        "0 mobilite": df["internal_mobility_count"] == 0,
+        "1+ mobilite": df["internal_mobility_count"] >= 1,
+    }.items():
+        subset = df[mask_age & mobility_mask]
+        age_mobility_rows.append(
+            (
+                label,
+                mobility_label,
+                len(subset),
+                round(subset["attrition"].mean() * 100, 2),
+            )
+        )
+
+age_mobility_table = pd.DataFrame(
+    age_mobility_rows,
+    columns=["Age", "Mobilite", "Effectif", "Attrition (%)"],
+)
+
+parents_ot_table = pd.DataFrame(
+    [
+        (
+            "Meres, OT >= 30h",
+            len(df[(df["parental_status"] == "Parent") & (df["gender"] == "Female") & (df["overtime_hours"] >= 30)]),
+            round(df[(df["parental_status"] == "Parent") & (df["gender"] == "Female") & (df["overtime_hours"] >= 30)]["attrition"].mean() * 100, 2),
+            round(df[(df["parental_status"] == "Parent") & (df["gender"] == "Female") & (df["overtime_hours"] >= 30)]["engagement_score"].mean(), 2),
+        ),
+        (
+            "Peres, OT >= 30h",
+            len(df[(df["parental_status"] == "Parent") & (df["gender"] == "Male") & (df["overtime_hours"] >= 30)]),
+            round(df[(df["parental_status"] == "Parent") & (df["gender"] == "Male") & (df["overtime_hours"] >= 30)]["attrition"].mean() * 100, 2),
+            round(df[(df["parental_status"] == "Parent") & (df["gender"] == "Male") & (df["overtime_hours"] >= 30)]["engagement_score"].mean(), 2),
+        ),
+    ],
+    columns=["Segment", "Effectif", "Attrition (%)", "Engagement moyen"],
+)
+
+high_safe = df["psychological_safety_score"] >= 60
+low_safe = df["psychological_safety_score"] < 40
+high_ot = df["overtime_hours"] >= 25
+low_ot = df["overtime_hours"] < 25
+
+ot_safety_table = pd.DataFrame(
+    [
+        ("OT eleve + safety haute", len(df[high_ot & high_safe]), round(df[high_ot & high_safe]["attrition"].mean() * 100, 2)),
+        ("OT faible + safety basse", len(df[low_ot & low_safe]), round(df[low_ot & low_safe]["attrition"].mean() * 100, 2)),
+        ("OT eleve + safety basse", len(df[high_ot & low_safe]), round(df[high_ot & low_safe]["attrition"].mean() * 100, 2)),
+    ],
+    columns=["Segment", "Effectif", "Attrition (%)"],
+)
+
+display(pd.DataFrame({"visibility_score_moyen": visibility_by_remote, "promotion_rate_pct": promotion_by_remote}))
+display(age_mobility_table)
+display(parents_ot_table)
+display(ot_safety_table)
+"""
+            ),
+            md_cell(
+                """
+### Lecture des hypotheses
+
+#### Confirme
+
+- **Overtime x securite psychologique** : la securite psychologique joue bien un role moderateur majeur. Avec un decoupage plausible (`OT >= 25`, `safety >= 60`, `safety < 40`), on observe environ **6 %** d'attrition en `OT eleve + safety haute` contre **41-43 %** dans les combinaisons a `safety basse`.
+- **Age x mobilite interne** : l'effet mobilite est tres robuste. Sans mobilite, l'attrition est autour de **32-36 %** selon l'age ; avec `1+` mobilite, elle tombe autour de **9-10 %** pour tous les groupes.
+- **Remote -> visibilite** : la visibilite baisse de facon quasi lineaire avec le remote, de **72,3** en presentiel a **57,6** en full remote.
+- **Parents + fortes heures supplementaires** : chez les parents avec `OT >= 30h`, l'attrition atteint environ **36,5 %** chez les femmes contre **17,1 %** chez les hommes, tandis que l'engagement reste proche dans les deux groupes.
+
+#### Partiellement confirme
+
+- **Remote x engagement x attrition** : le signal existe surtout en hybride. En full remote, l'ecart d'attrition selon l'engagement est faible.
+- **PhD x salaire bas** : le couple `haut niveau de diplome + bas salaire` est bien plus expose, mais le phenomene n'est pas specifique aux PhD.
+- **Haute performance x non promotion** : la promotion protege clairement, mais l'absence de promotion ne cree pas un risque extremement plus fort chez les top performers que chez les autres.
+
+#### A ne pas surinterpreter
+
+- **Visibilite x mobilite** : la mobilite explique beaucoup plus l'attrition que la visibilite.
+- **Remote x promotion** : le remote reduit nettement la visibilite, mais ne se traduit pas ici par un effondrement du taux de promotion.
+- **Formation x niveau hierarchique -> performance** : le signal est faible dans ce dataset, donc cet axe ne doit pas etre presente comme un resultat fort.
 """
             ),
         ]
@@ -246,7 +377,7 @@ plot_correlation_heatmap(
                 """
 # Partie 2 - KPI et Analyse RH
 
-Objectif : transformer les donnees brutes en indicateurs RH exploitables pour la decision, avec un angle turnover, engagement, carriere, remuneration et mobilite interne.
+Objectif : transformer le dataset nettoye en indicateurs RH exploitables pour la decision, avec un angle turnover, engagement, carriere, remuneration et mobilite interne.
 """
             ),
             code_cell(IMPORT_BLOCK),
@@ -264,7 +395,7 @@ kpi_table(df)
                 """
 ## 2. Turnover
 
-Le turnover est desormais significatif. Il est utile de l'observer selon plusieurs segments RH pour faire ressortir les zones de vigilance et les priorites d'action.
+Le turnover est significatif. Il est utile de l'observer selon plusieurs segments RH pour faire ressortir les zones de vigilance et les priorites d'action.
 """
             ),
             code_cell(
@@ -318,6 +449,8 @@ plot_bar(
             md_cell(
                 """
 ## 4. Evolution des carrieres
+
+Cette partie met particulierement a profit les variables `years_at_company`, `internal_mobility_count` et `promotion_last_3y`, qui n'etaient pas toutes explicites dans l'enonce initial mais deviennent centrales dans le dataset actuel.
 """
             ),
             code_cell(
@@ -327,6 +460,7 @@ career_table = pd.DataFrame(
         "promotion_rate_pct": df.groupby("department")["promotion_last_3y"].mean() * 100,
         "avg_training_hours": df.groupby("department")["training_hours"].mean(),
         "avg_internal_mobility": df.groupby("department")["internal_mobility_count"].mean(),
+        "avg_years_at_company": df.groupby("department")["years_at_company"].mean(),
     }
 ).round(2).sort_values("promotion_rate_pct", ascending=False)
 
@@ -337,6 +471,7 @@ career_table
                 """
 plot_bar(career_table.reset_index(), "department", "promotion_rate_pct", title="Taux de promotion par departement", rotation=25)
 plot_bar(career_table.reset_index(), "department", "avg_training_hours", title="Heures de formation moyennes par departement", rotation=25)
+plot_bar(career_table.reset_index(), "department", "avg_years_at_company", title="Anciennete moyenne par departement", rotation=25)
 """
             ),
             md_cell(
@@ -390,20 +525,57 @@ plot_bar(mobility_table.reset_index(), "department", "mobility_rate_pct", title=
                 """
 ## 7. Synthese analytique
 
-- **Effectif** : 8 020 collaborateurs.
-- **Attrition globale** : 18,80 %.
+- **Effectif analyse** : 8 000 collaborateurs uniques.
+- **Attrition globale** : 18,77 %.
 - **Engagement moyen** : 67,79 / 100.
 - **Securite psychologique moyenne** : 53,72 / 100.
-- **Promotion sur 3 ans** : 23,85 %.
+- **Promotion sur 3 ans** : 23,88 % environ.
 - **Mobilite interne** : 61,91 % des collaborateurs ont connu au moins une mobilite.
-- **Salaire moyen** : 62 328 par an.
+- **Salaire moyen** : 62 314 environ par an.
 
 ### Points d'attention
 
 - L'attrition est plus elevee en **Espagne**, en **France**, ainsi que dans les departements **HR**, **Finance** et **Sales**.
 - Les collaborateurs avec **fort absentisme**, **heures supplementaires elevees** et **engagement plus faible** presentent davantage de risque de depart.
 - Les collaborateurs partis ont en moyenne une **securite psychologique beaucoup plus basse**, **moins de mobilite interne**, **un salaire plus faible** et **moins d'anciennete**.
+- L'anciennete, la promotion recente et la mobilite interne apparaissent comme des dimensions RH particulierement structurantes dans ce dataset.
 - Le salaire moyen des femmes ressort a un niveau inferieur a celui des hommes dans une lecture brute du dataset. Il faudrait prolonger par une analyse controlee des postes, pays et niveaux.
+"""
+            ),
+            md_cell(
+                """
+## 8. Validation de KPI et signaux croises
+
+Cette section consolide quelques hypotheses utiles au pilotage RH, en reliant plusieurs dimensions a la fois.
+"""
+            ),
+            code_cell(
+                """
+validation_table = pd.DataFrame(
+    [
+        ("OT x safety psychologique", "Confirme", "La safety psychologique modere fortement l'effet de la surcharge ; safety basse = attrition tres elevee meme avec OT non extreme."),
+        ("Age x mobilite interne", "Confirme", "L'absence de mobilite fait monter l'attrition a plus de 30 % quel que soit l'age ; avec mobilite, elle retombe autour de 9-10 %."),
+        ("Remote -> visibilite", "Confirme", "La visibilite baisse regulierement quand le remote augmente."),
+        ("Parents x OT x genre", "Confirme", "Chez les parents en forte surcharge, l'attrition des femmes est environ deux fois plus elevee que celle des hommes."),
+        ("Remote x engagement", "Partiel", "L'effet de l'engagement sur l'attrition est plus visible en hybride qu'en full remote."),
+        ("PhD x bas salaire", "Partiel", "Le risque existe, mais il n'est pas reserve aux profils PhD."),
+        ("Visibilite x mobilite", "Nuance", "La mobilite interne explique bien plus les departs que la visibilite seule."),
+        ("Remote x promotion", "Nuance", "Le remote degrade la visibilite, mais l'effet sur la promotion reste limite dans ce dataset."),
+    ],
+    columns=["Hypothese", "Statut", "Lecture KPI"],
+)
+
+validation_table
+"""
+            ),
+            md_cell(
+                """
+### Implications RH
+
+- La **mobilite interne** ressort comme un levier de retention tres transversal, au-dela des differences d'age ou de visibilite.
+- La **securite psychologique** doit etre suivie comme un indicateur avance de risque, en particulier dans les contextes de surcharge.
+- Les analyses croisees suggerent aussi une vigilance specifique sur les **parents en forte charge de travail**, avec un possible enjeu d'equite de genre.
+- La **visibilite** est un bon indicateur d'environnement de travail, mais pas un determinant direct des departs dans ce dataset.
 """
             ),
         ]
@@ -414,7 +586,7 @@ plot_bar(mobility_table.reset_index(), "department", "mobility_rate_pct", title=
                 """
 # Partie 3 - Machine Learning : prediction de l'attrition
 
-Objectif : construire un premier modele de prediction du depart d'un collaborateur, l'evaluer, identifier les variables contributives et discuter ses limites.
+Objectif : construire un modele de prediction du depart d'un collaborateur a partir du dataset actuel nettoye, l'evaluer, identifier les variables contributives et discuter ses limites.
 
 Compte tenu de l'environnement disponible, le modele ci-dessous repose sur une **regression logistique codee en Python/Numpy** plutot que sur `scikit-learn`.
 """
@@ -424,7 +596,9 @@ Compte tenu de l'environnement disponible, le modele ci-dessous repose sur une *
                 """
 ## 1. Preparation des donnees
 
+- dedoublonnage des `employee_id` strictement dupliques
 - exclusion de `employee_id`
+- utilisation de **toutes les autres variables disponibles** du dataset
 - imputation simple des valeurs manquantes
 - encodage one-hot des variables qualitatives
 - standardisation des variables
@@ -440,11 +614,27 @@ print("Validation:", prepared.X_val.shape, prepared.y_val.mean().round(4))
 print("Test:", prepared.X_test.shape, prepared.y_test.mean().round(4))
 """
             ),
+            code_cell(
+                """
+pd.DataFrame(
+    {
+        "Indicateur": [
+            "Variables exclues",
+            "Nombre de features apres encodage",
+        ],
+        "Valeur": [
+            "employee_id uniquement",
+            len(prepared.feature_names),
+        ],
+    }
+)
+"""
+            ),
             md_cell(
                 """
 ## 2. Entrainement du modele
 
-On utilise une regression logistique avec ponderation des classes pour tenir compte du desequilibre de la cible, tout en preservant une lecture interpretable des variables.
+On utilise une regression logistique avec ponderation des classes pour tenir compte du desequilibre de la cible, tout en preservant une lecture interpretable des variables. Le dataset actuel contient suffisamment de cas positifs pour produire une evaluation plus stable que precedemment.
 """
             ),
             code_cell(
@@ -508,7 +698,7 @@ pd.DataFrame(
                 """
 ## 4. Variables importantes
 
-Les coefficients ci-dessous sont interpretes comme des effets directionnels dans le cadre de cette regression logistique standardisee. Ils ne doivent pas etre lus comme des causalites.
+Les coefficients ci-dessous sont interpretes comme des effets directionnels dans le cadre de cette regression logistique standardisee. Ils ne doivent pas etre lus comme des causalites, surtout lorsque plusieurs variables proches coexistent dans le modele.
 """
             ),
             code_cell(
@@ -601,7 +791,7 @@ comparison
 
 En complement du modele supervise, on peut aussi tester une logique semi-supervisee : apprendre le profil "normal" des collaborateurs qui restent, puis mesurer a quel point certains profils s'en ecartent.
 
-Ici, on utilise une distance de **Mahalanobis regularisee** sur les variables numeriques, en apprenant le profil de reference uniquement sur les collaborateurs sans attrition du train.
+Ici, on utilise une distance de **Mahalanobis regularisee** sur l'ensemble des variables exploitables, apres encodage des variables qualitatives et standardisation. Le profil de reference est appris uniquement sur les collaborateurs sans attrition du train.
 """
             ),
             code_cell(
@@ -692,6 +882,7 @@ Variables associees a un **risque plus eleve** dans cette version du modele :
 - absentisme plus eleve
 - davantage d'heures supplementaires
 - certains effets lies a des roles ou sous-populations specifiques, a interpreter avec prudence
+- des situations de moindre stabilisation RH : anciennete plus faible, absence de promotion recente et mobilite interne plus faible
 
 Variables associees a un **risque plus faible** :
 
@@ -744,7 +935,7 @@ Notebook redige en vue d'un export PDF. L'objectif est de fournir une restitutio
 
 La DRH souhaite mieux comprendre les dynamiques de depart, d'engagement, d'evolution de carriere, de remuneration et de mobilite interne au sein d'une entreprise internationale d'environ 8 000 collaborateurs.
 
-Le dataset analyse contient **8 020 collaborateurs** et **28 variables**. L'objectif etait double :
+Le dataset source contient **8 020 lignes** et **28 variables**. Apres suppression de **20 doublons exacts d'`employee_id`**, l'analyse porte sur **8 000 collaborateurs uniques**. L'objectif etait double :
 
 1. transformer les donnees RH en indicateurs de pilotage
 2. construire un premier modele de prediction de l'attrition
@@ -756,7 +947,7 @@ Le dataset analyse contient **8 020 collaborateurs** et **28 variables**. L'obje
 
 ### 1. Une attrition elevee mais heterogene
 
-- Le taux d'attrition global s'etablit a **18,8 %**.
+- Le taux d'attrition global s'etablit a **18,77 %** apres dedoublonnage.
 - Les niveaux les plus eleves apparaissent en **Espagne (20,06 %)** et en **France (19,66 %)**.
 - Cote departements, **HR (21,53 %)** et **Finance (20,63 %)** sont les plus exposes.
 
@@ -773,9 +964,9 @@ Le dataset analyse contient **8 020 collaborateurs** et **28 variables**. L'obje
 
 ### 4. Carriere, mobilite et remuneration
 
-- Environ **23,85 %** des collaborateurs ont eu une promotion sur 3 ans.
-- La **mobilite interne** concerne **61,91 %** des collaborateurs au moins une fois.
-- Le **salaire moyen** est de **62 328** par an, avec une progression nette selon le niveau hierarchique.
+- Environ **23,9 %** des collaborateurs ont eu une promotion sur 3 ans.
+- La **mobilite interne** concerne un peu plus de **61,8 %** des collaborateurs au moins une fois.
+- Le **salaire moyen** est d'environ **62 300** par an, avec une progression nette selon le niveau hierarchique.
 - Un ecart brut apparait entre salaire moyen des femmes et des hommes, ce qui justifie une analyse plus fine par poste, pays et niveau.
 """
             ),
@@ -794,7 +985,7 @@ plot_bar(attrition_by_group(df, "country"), "country", "attrition_rate_pct", tit
                 """
 ## Resultats du modele predictif
 
-Le modele retenu est une regression logistique interpretable. Il a ete entraine sur des donnees nettoyees et encodees, avec ponderation des classes pour tenir compte de la part minoritaire des departs.
+Le modele retenu est une regression logistique interpretable. Il a ete entraine sur des donnees nettoyees, dedoublonnees et encodees, avec ponderation des classes pour tenir compte de la part minoritaire des departs.
 """
             ),
             code_cell(
@@ -829,7 +1020,7 @@ coefficient_importance(model, prepared.feature_names, top_n=15)
 
 - Les performances du modele sont **solides** sur ce dataset, ce qui rend la priorisation des populations a risque plus credible.
 - Les variables les plus contributives vont dans le sens des analyses descriptives : **absenteisme**, **heures supplementaires**, **securite psychologique**, **mobilite interne** et **engagement** participent fortement au signal.
-- Ce resultat suggere que le dataset actuel embarque des variables beaucoup plus informatives que dans la version precedente.
+- Ce resultat suggere que le dataset actuel embarque un signal predictif nettement plus exploitable qu'un simple bruit organisationnel diffus.
 """
             ),
             md_cell(
@@ -920,9 +1111,9 @@ pd.DataFrame(
 
 1. Renforcer le suivi des populations a risque dans les segments les plus exposes : **Espagne**, **France**, ainsi que les departements **HR**, **Finance** et **Sales**.
 2. Utiliser la **securite psychologique**, l'**absenteisme**, la **charge de travail** et l'**engagement** comme signaux de prevention a traiter en priorite.
-3. Cibler davantage les actions de **mobilite interne**, de **promotion** et de developpement RH pour soutenir la retention.
+3. Cibler davantage les actions de **mobilite interne**, de **promotion** et d'integration des collaborateurs les moins anciens pour soutenir la retention.
 4. Realiser un audit complementaire sur la **structure de remuneration**, en particulier sur les ecarts par genre, poste, pays et niveau.
-5. Enrichir le dataset avec des variables plus proches des causes de depart : historique managerial, changements d'equipe, enquetes qualitatives, intentions de mobilite, etc.
+5. Encadrer strictement l'usage des variables sensibles ou discutables (`gender`, `accented_name_flag`) et enrichir le dataset avec des variables plus directement causales : historique managerial, changements d'equipe, enquetes qualitatives, intentions de mobilite, etc.
 """
             ),
             md_cell(
@@ -953,7 +1144,7 @@ Format court, redige pour un comite de direction. Ce notebook peut etre exporte 
                 """
 ## 1. Ce qu'il faut retenir
 
-- L'entreprise presente un **turnover eleve (18,8 %)**, avec des poches de risque bien identifiees.
+- L'entreprise presente un **turnover eleve (18,77 %)**, avec des poches de risque bien identifiees.
 - Les principaux signaux lies au depart sont une **securite psychologique plus faible**, un **absenteisme plus eleve**, davantage d'**heures supplementaires**, moins de **mobilite interne** et un **engagement plus bas**.
 - Les zones a surveiller en priorite sont **l'Espagne**, **la France**, ainsi que les departements **HR**, **Finance** et **Sales**.
 """
@@ -971,6 +1162,7 @@ kpi_table(df).head(8)
 
 - plus eleve dans certains segments organisationnels
 - associe a des conditions d'emploi moins favorables dans ce dataset
+- plus marque chez les collaborateurs les moins ancres dans l'organisation : moindre anciennete, moins de promotions et moins de mobilite interne
 - desormais predible avec un niveau de performance utile pour la priorisation RH
 
 ### Engagement
@@ -1017,10 +1209,10 @@ pd.DataFrame(
 ## 4. Recommandations operationnelles
 
 1. Prioriser les plans d'action RH sur les segments les plus exposes au turnover.
-2. Integrer l'engagement, la securite psychologique et l'absenteisme dans un dispositif de veille RH trimestriel.
-3. Renforcer les parcours de formation et de mobilite interne comme leviers de retention.
-4. Lancer une analyse plus fine de l'equite salariale.
-5. Ameliorer la qualite des donnees et enrichir le modele avant toute utilisation plus large.
+2. Integrer l'engagement, la securite psychologique, l'absenteisme et la charge de travail dans un dispositif de veille RH trimestriel.
+3. Renforcer les parcours de mobilite, de promotion et d'integration des profils les moins anciens comme leviers de retention.
+4. Lancer une analyse plus fine de l'equite salariale et du role des variables sensibles.
+5. Ameliorer la qualite des donnees, encadrer l'usage des variables sensibles et confirmer les resultats sur de nouvelles cohortes avant toute utilisation plus large.
 """
             ),
         ]
