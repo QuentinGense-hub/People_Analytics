@@ -142,7 +142,7 @@ numeric_summary(df).head(15)
                 """
 ## 3. Distribution de la cible
 
-L'attrition est tres desequilibree : environ 2,6 % des collaborateurs quittent l'entreprise. Cette caracteristique aura un impact direct sur l'evaluation du modele.
+L'attrition represente desormais environ **18,8 %** des effectifs. La classe positive reste minoritaire, mais le desequilibre est nettement moins extreme que dans la version precedente du dataset, ce qui rend la prediction plus exploitable.
 """
             ),
             code_cell(
@@ -231,11 +231,11 @@ plot_correlation_heatmap(
                 """
 ## 6. Faits marquants EDA
 
-- Le dataset couvre **8 020 collaborateurs** et presente un **taux d'attrition faible (2,59 %)**.
+- Le dataset couvre **8 020 collaborateurs** et presente un **taux d'attrition de 18,8 %**.
 - Les principales valeurs manquantes concernent `performance_rating`, `engagement_score` et `salary`, mais dans des proportions limitees.
-- Les pays et departements ne sont pas exposes de maniere uniforme : **la France** et **le departement IT** figurent parmi les zones les plus touchees par l'attrition.
-- Les collaborateurs partis montrent en moyenne un **engagement plus bas**, une **securite psychologique plus faible**, **moins de formation**, et un peu plus d'absence et d'heures supplementaires.
-- Les correlations lineaires avec l'attrition restent faibles, ce qui suggere un signal predictif modere et potentiellement diffus.
+- Les pays et departements ne sont pas exposes de maniere uniforme : **l'Espagne** et **la France** sont les pays les plus touches, tandis que **HR** et **Finance** ressortent comme les departements les plus exposes.
+- Les collaborateurs partis montrent en moyenne un **engagement plus bas**, une **securite psychologique beaucoup plus faible**, **davantage d'absences**, **plus d'heures supplementaires**, **moins de mobilite interne** et un **salaire un peu plus faible**.
+- Le signal apparait plus structure qu'auparavant, en particulier autour de l'**absenteisme**, de la **securite psychologique**, des **heures supplementaires** et de la **mobilite interne**.
 """
             ),
         ]
@@ -264,7 +264,7 @@ kpi_table(df)
                 """
 ## 2. Turnover
 
-Le turnover global est faible, mais il est utile de l'observer selon plusieurs segments RH pour faire ressortir les zones de vigilance.
+Le turnover est desormais significatif. Il est utile de l'observer selon plusieurs segments RH pour faire ressortir les zones de vigilance et les priorites d'action.
 """
             ),
             code_cell(
@@ -391,18 +391,18 @@ plot_bar(mobility_table.reset_index(), "department", "mobility_rate_pct", title=
 ## 7. Synthese analytique
 
 - **Effectif** : 8 020 collaborateurs.
-- **Attrition globale** : 2,59 %.
-- **Engagement moyen** : 68,15 / 100.
-- **Securite psychologique moyenne** : 66,19 / 100.
-- **Promotion sur 3 ans** : 24,64 %.
-- **Mobilite interne** : 63,72 % des collaborateurs ont connu au moins une mobilite.
-- **Salaire moyen** : 62 313 par an.
+- **Attrition globale** : 18,80 %.
+- **Engagement moyen** : 67,79 / 100.
+- **Securite psychologique moyenne** : 53,72 / 100.
+- **Promotion sur 3 ans** : 23,85 %.
+- **Mobilite interne** : 61,91 % des collaborateurs ont connu au moins une mobilite.
+- **Salaire moyen** : 62 328 par an.
 
 ### Points d'attention
 
-- L'attrition est plus elevee en **France**, en **IT** et dans certaines populations managers de niveau 1.
-- Les collaborateurs avec **engagement faible** et **fort absentisme** presentent davantage de risque de depart.
-- Les collaborateurs partis ont en moyenne **moins de formation**, **un salaire plus faible** et **une securite psychologique plus basse**.
+- L'attrition est plus elevee en **Espagne**, en **France**, ainsi que dans les departements **HR**, **Finance** et **Sales**.
+- Les collaborateurs avec **fort absentisme**, **heures supplementaires elevees** et **engagement plus faible** presentent davantage de risque de depart.
+- Les collaborateurs partis ont en moyenne une **securite psychologique beaucoup plus basse**, **moins de mobilite interne**, **un salaire plus faible** et **moins d'anciennete**.
 - Le salaire moyen des femmes ressort a un niveau inferieur a celui des hommes dans une lecture brute du dataset. Il faudrait prolonger par une analyse controlee des postes, pays et niveaux.
 """
             ),
@@ -444,7 +444,7 @@ print("Test:", prepared.X_test.shape, prepared.y_test.mean().round(4))
                 """
 ## 2. Entrainement du modele
 
-On utilise une regression logistique avec ponderation des classes pour tenir compte du fort desequilibre de la cible.
+On utilise une regression logistique avec ponderation des classes pour tenir compte du desequilibre de la cible, tout en preservant une lecture interpretable des variables.
 """
             ),
             code_cell(
@@ -526,7 +526,7 @@ plot_top_coefficients(model, prepared.feature_names, top_n=20)
                 """
 ## 5. Experience d'oversampling
 
-On teste ici un **random oversampling** sur le jeu d'entrainement uniquement. L'objectif n'est pas de "creer de l'information", mais de verifier si une meilleure representation de la classe minoritaire aide le modele a detecter davantage de departs.
+On teste ici un **random oversampling** sur le jeu d'entrainement uniquement. L'objectif n'est pas de "creer de l'information", mais de verifier si une meilleure representation de la classe minoritaire permet surtout d'ameliorer le compromis entre `recall` et `precision`.
 """
             ),
             code_cell(
@@ -592,14 +592,14 @@ comparison
 
 - Si le `recall` augmente, l'oversampling aide le modele a rater moins de departs.
 - Si la `precision` baisse fortement, cela signifie qu'il produit davantage de faux positifs.
-- Si le gain reste faible sur `PR-AUC` et `F1-score`, on peut conclure que le frein principal est la **faiblesse du signal predictif**, plus que le seul desequilibre de classe.
+- Si le gain reste marginal sur `PR-AUC` et `F1-score`, on peut conclure que le modele de base capte deja l'essentiel du signal utile, et que l'oversampling n'apporte qu'un ajustement secondaire.
 """
             ),
             md_cell(
                 """
 ## 6. Experience de detection d'anomalie
 
-Comme l'attrition est rare, on peut aussi tester une logique semi-supervisee : apprendre le profil "normal" des collaborateurs qui restent, puis mesurer a quel point certains profils s'en ecartent.
+En complement du modele supervise, on peut aussi tester une logique semi-supervisee : apprendre le profil "normal" des collaborateurs qui restent, puis mesurer a quel point certains profils s'en ecartent.
 
 Ici, on utilise une distance de **Mahalanobis regularisee** sur les variables numeriques, en apprenant le profil de reference uniquement sur les collaborateurs sans attrition du train.
 """
@@ -678,7 +678,7 @@ all_comparison
                 """
 ### Lecture critique
 
-- Cette approche est interessante quand la classe positive est rare, car elle ne suppose pas de bien "apprendre" beaucoup de cas de depart.
+- Cette approche est interessante quand la classe positive reste minoritaire, car elle ne suppose pas de modeliser finement un grand nombre de cas de depart.
 - En revanche, elle repose sur une hypothese forte : les departs seraient des profils **atypiques** par rapport aux collaborateurs qui restent.
 - Si les collaborateurs qui quittent l'entreprise ne sont pas des anomalies nettes mais des cas proches du reste de la population, la methode restera limitee.
 """
@@ -689,17 +689,17 @@ all_comparison
 
 Variables associees a un **risque plus eleve** dans cette version du modele :
 
-- anciennete (`years_at_company`) dans certaines configurations
-- roles ou pays specifiques comme la France
 - absentisme plus eleve
+- davantage d'heures supplementaires
+- certains effets lies a des roles ou sous-populations specifiques, a interpreter avec prudence
 
 Variables associees a un **risque plus faible** :
 
-- plus d'heures de formation
 - meilleure securite psychologique
-- salaire plus eleve
 - un temps contractuel plus important
-- davantage de teletravail dans ce dataset
+- davantage de mobilite interne
+- un engagement plus eleve
+- la presence d'une promotion recente
 """
             ),
             md_cell(
@@ -708,22 +708,22 @@ Variables associees a un **risque plus faible** :
 
 ### Ce que le modele apporte
 
-- un premier cadre de priorisation des populations a surveiller
+- un cadre robuste de priorisation des populations a surveiller
 - une lecture interpretable grace aux coefficients
 - une base solide pour une future industrialisation
 
 ### Limites majeures
 
-- la cible est **tres desequilibree** (2,59 % de departs)
-- les performances restent **modestes** : le modele detecte un signal faible
-- l'oversampling peut ameliorer la detection de la classe minoritaire, mais il ne compense pas l'absence de variables fortement explicatives
-- la detection d'anomalie est pertinente comme comparaison, mais elle n'est utile que si les departs se comportent vraiment comme des cas atypiques
+- la cible reste **minoritaire** (18,8 % de departs), mais elle est bien plus exploitable qu'auparavant
+- les performances du modele supervise sont **solides** sur ce dataset, mais elles doivent etre confirmees hors echantillon temporel
+- l'oversampling n'apporte qu'un gain marginal par rapport a la regression logistique ponderee
+- la detection d'anomalie reste nettement moins performante que l'approche supervisee
 - plusieurs variables sont potentiellement sensibles ou discutables d'un point de vue ethique (`gender`, `accented_name_flag`)
-- les donnees semblent relativement peu structurees autour d'un signal fort d'attrition, ce qui limite la precision operationnelle
+- le resultat peut dependre de la maniere dont certaines variables ont ete construites dans le dataset, notamment l'absenteisme ou la securite psychologique
 
 ### Conclusion
 
-Le modele est utile comme **outil d'exploration et d'alerte faible**, mais insuffisant a ce stade pour piloter seul des decisions RH individuelles.
+Le modele devient ici un **outil d'aide a la priorisation RH credible**, utile pour cibler les actions de prevention, tout en restant insuffisant pour justifier a lui seul des decisions individuelles.
 """
             ),
         ]
@@ -754,28 +754,28 @@ Le dataset analyse contient **8 020 collaborateurs** et **28 variables**. L'obje
                 """
 ## Faits marquants de l'EDA et de l'analyse RH
 
-### 1. Une attrition globalement faible mais non homogene
+### 1. Une attrition elevee mais heterogene
 
-- Le taux d'attrition global s'etablit a **2,59 %**.
-- Les niveaux les plus eleves apparaissent en **France (3,81 %)** et dans le **departement IT (2,89 %)**.
-- Le niveau de teletravail **75 %** ressort egalement comme une modalite plus exposee dans ce dataset.
+- Le taux d'attrition global s'etablit a **18,8 %**.
+- Les niveaux les plus eleves apparaissent en **Espagne (20,06 %)** et en **France (19,66 %)**.
+- Cote departements, **HR (21,53 %)** et **Finance (20,63 %)** sont les plus exposes.
 
 ### 2. L'engagement et la securite psychologique jouent un role de fond
 
 - Les collaborateurs partis ont un **engagement plus faible** que les collaborateurs restes.
-- Leur **securite psychologique** est egalement plus basse.
+- Leur **securite psychologique** est tres nettement plus basse.
 - Les populations avec engagement faible affichent un taux d'attrition superieur aux autres groupes.
 
 ### 3. Les conditions de travail donnent des signaux complementaires
 
-- Les collaborateurs partis presentent un peu plus d'**absenteisme** et d'**heures supplementaires**.
-- Ils ont aussi recu **moins de formation** en moyenne.
+- Les collaborateurs partis presentent beaucoup plus d'**absenteisme** et davantage d'**heures supplementaires**.
+- Ils ont aussi connu **moins de mobilite interne** et une remuneration legerement plus basse.
 
 ### 4. Carriere, mobilite et remuneration
 
-- Environ **24,64 %** des collaborateurs ont eu une promotion sur 3 ans.
-- La **mobilite interne** concerne **63,72 %** des collaborateurs au moins une fois.
-- Le **salaire moyen** est de **62 313** par an, avec une progression nette selon le niveau hierarchique.
+- Environ **23,85 %** des collaborateurs ont eu une promotion sur 3 ans.
+- La **mobilite interne** concerne **61,91 %** des collaborateurs au moins une fois.
+- Le **salaire moyen** est de **62 328** par an, avec une progression nette selon le niveau hierarchique.
 - Un ecart brut apparait entre salaire moyen des femmes et des hommes, ce qui justifie une analyse plus fine par poste, pays et niveau.
 """
             ),
@@ -794,7 +794,7 @@ plot_bar(attrition_by_group(df, "country"), "country", "attrition_rate_pct", tit
                 """
 ## Resultats du modele predictif
 
-Le modele retenu est une regression logistique interpretable. Il a ete entraine sur des donnees nettoyees et encodees, avec ponderation des classes pour compenser la rarete des departs.
+Le modele retenu est une regression logistique interpretable. Il a ete entraine sur des donnees nettoyees et encodees, avec ponderation des classes pour tenir compte de la part minoritaire des departs.
 """
             ),
             code_cell(
@@ -827,16 +827,16 @@ coefficient_importance(model, prepared.feature_names, top_n=15)
                 """
 ### Interpretation
 
-- Les performances du modele restent **modestes**. Il identifie un signal, mais insuffisant pour une decision individuelle fiable.
-- Les variables les plus contributives vont dans le sens des analyses descriptives : **formation**, **securite psychologique**, **salaire** et **absenteisme** participent au signal.
-- Ce resultat est coherent avec un contexte RH ou les departs sont rares et probablement influences par des facteurs non captures dans le dataset.
+- Les performances du modele sont **solides** sur ce dataset, ce qui rend la priorisation des populations a risque plus credible.
+- Les variables les plus contributives vont dans le sens des analyses descriptives : **absenteisme**, **heures supplementaires**, **securite psychologique**, **mobilite interne** et **engagement** participent fortement au signal.
+- Ce resultat suggere que le dataset actuel embarque des variables beaucoup plus informatives que dans la version precedente.
 """
             ),
             md_cell(
                 """
 ## Experience complementaire : detection d'anomalie
 
-Une approche alternative a ete testee pour tenir compte de la faible representation de l'attrition : la **detection d'anomalie**. L'idee consiste a apprendre le profil "habituel" des collaborateurs qui restent, puis a identifier les profils qui s'en ecartent le plus.
+Une approche alternative a egalement ete testee : la **detection d'anomalie**. L'idee consiste a apprendre le profil "habituel" des collaborateurs qui restent, puis a identifier les profils qui s'en ecartent le plus.
 """
             ),
             code_cell(
@@ -910,17 +910,17 @@ pd.DataFrame(
 ### Lecture de cette experience
 
 - La detection d'anomalie n'est **pas superieure** au modele supervise en capacite globale de classement.
-- En revanche, elle permet de **remonter un peu plus de departs** dans cette experience, au prix d'une precision faible.
-- Cette approche peut donc etre utile comme **outil exploratoire complementaire**, mais pas comme solution principale de prediction.
+- Elle detecte egalement **moins de departs** que la regression logistique dans cette configuration.
+- Cette approche peut donc etre utile comme **benchmark exploratoire**, mais pas comme solution principale de prediction sur ce dataset.
 """
             ),
             md_cell(
                 """
 ## Recommandations
 
-1. Renforcer le suivi des populations a risque dans les segments les plus exposes : France, IT et certaines equipes managers de niveau 1.
-2. Utiliser l'engagement, la securite psychologique, l'absenteisme et la charge de travail comme **signaux de prevention** plutot que comme variables de sanction.
-3. Cibler davantage les actions de **formation** et de **mobilite interne** pour soutenir la retention.
+1. Renforcer le suivi des populations a risque dans les segments les plus exposes : **Espagne**, **France**, ainsi que les departements **HR**, **Finance** et **Sales**.
+2. Utiliser la **securite psychologique**, l'**absenteisme**, la **charge de travail** et l'**engagement** comme signaux de prevention a traiter en priorite.
+3. Cibler davantage les actions de **mobilite interne**, de **promotion** et de developpement RH pour soutenir la retention.
 4. Realiser un audit complementaire sur la **structure de remuneration**, en particulier sur les ecarts par genre, poste, pays et niveau.
 5. Enrichir le dataset avec des variables plus proches des causes de depart : historique managerial, changements d'equipe, enquetes qualitatives, intentions de mobilite, etc.
 """
@@ -929,10 +929,10 @@ pd.DataFrame(
                 """
 ## Limites
 
-- Donnees desequilibrees avec peu de cas de depart
-- Variables explicatives faiblement correlees a l'attrition
+- Dataset unique, sans validation temporelle ni test sur une autre cohorte
+- Certaines variables peuvent etre tres proches du phenomene a predire, ce qui peut gonfler artificiellement la performance
 - Certaines variables peuvent poser des questions d'equite et d'ethique
-- Analyse effectuee sur un dataset unique, sans validation temporelle
+- Resultats a confirmer avant toute utilisation operationnelle large
 
 La suite logique serait de completer l'approche quantitative par des entretiens RH et une meilleure historisation des evenements de carriere.
 """
@@ -953,9 +953,9 @@ Format court, redige pour un comite de direction. Ce notebook peut etre exporte 
                 """
 ## 1. Ce qu'il faut retenir
 
-- L'entreprise presente un **turnover faible (2,59 %)**, mais avec des poches de risque identifiables.
-- Les principaux signaux lies au depart sont un **engagement plus faible**, une **securite psychologique plus basse**, **moins de formation**, et un peu plus d'**absence** et d'**heures supplementaires**.
-- Les zones a surveiller en priorite sont la **France**, le **departement IT** et certaines populations managers de niveau 1.
+- L'entreprise presente un **turnover eleve (18,8 %)**, avec des poches de risque bien identifiees.
+- Les principaux signaux lies au depart sont une **securite psychologique plus faible**, un **absenteisme plus eleve**, davantage d'**heures supplementaires**, moins de **mobilite interne** et un **engagement plus bas**.
+- Les zones a surveiller en priorite sont **l'Espagne**, **la France**, ainsi que les departements **HR**, **Finance** et **Sales**.
 """
             ),
             code_cell(
@@ -971,24 +971,24 @@ kpi_table(df).head(8)
 
 - plus eleve dans certains segments organisationnels
 - associe a des conditions d'emploi moins favorables dans ce dataset
-- plus difficile a predire a l'echelle individuelle du fait du faible nombre de departs
+- desormais predible avec un niveau de performance utile pour la priorisation RH
 
 ### Engagement
 
 - plus faible dans les populations qui quittent l'entreprise
-- probablement nourri par des leviers de management, de charge de travail, de reconnaissance et de formation
+- articule avec des leviers de management, de charge de travail, de reconnaissance et de securite psychologique
 """
             ),
             md_cell(
                 """
 ## 3. Resultat du modele predictif
 
-Le modele detecte un **signal faible** :
+Le modele detecte un **signal exploitable** :
 
-- il est utile pour orienter la vigilance RH
+- il est utile pour orienter la vigilance RH et prioriser les actions de retention
 - il ne doit pas etre utilise seul pour prendre des decisions individuelles
-- il confirme l'importance de la formation, de la securite psychologique, de la remuneration et de l'absenteisme dans la lecture du risque
-- une experience de **detection d'anomalie** a egalement ete testee : elle remonte un peu plus de departs, mais reste globalement moins robuste que le modele supervise
+- il confirme l'importance de la securite psychologique, de l'absenteisme, de l'engagement, de la mobilite interne et de la charge de travail dans la lecture du risque
+- une experience de **detection d'anomalie** a egalement ete testee : elle reste moins robuste que le modele supervise
 """
             ),
             code_cell(
