@@ -968,6 +968,13 @@ Le dataset source contient **8 020 lignes** et **28 variables**. Apres suppressi
 - La **mobilite interne** concerne un peu plus de **61,8 %** des collaborateurs au moins une fois.
 - Le **salaire moyen** est d'environ **62 300** par an, avec une progression nette selon le niveau hierarchique.
 - Un ecart brut apparait entre salaire moyen des femmes et des hommes, ce qui justifie une analyse plus fine par poste, pays et niveau.
+
+### 5. Hypotheses croisees confirmees
+
+- La **mobilite interne** est un signal transversal majeur : sans mobilite, l'attrition depasse 30 % dans toutes les classes d'age ; avec mobilite, elle retombe autour de 9-10 %.
+- La **securite psychologique** modere fortement l'effet de la surcharge : une safety haute maintient une attrition faible meme avec des heures supplementaires elevees.
+- Le **remote** reduit nettement la visibilite interne, mais cette baisse ne se traduit pas directement par une baisse forte des promotions dans ce dataset.
+- Chez les parents en forte surcharge, l'attrition des femmes est environ deux fois plus elevee que celle des hommes, ce qui signale un enjeu RH et d'equite a investiguer.
 """
             ),
             code_cell(
@@ -985,7 +992,7 @@ plot_bar(attrition_by_group(df, "country"), "country", "attrition_rate_pct", tit
                 """
 ## Resultats du modele predictif
 
-Le modele retenu est une regression logistique interpretable. Il a ete entraine sur des donnees nettoyees, dedoublonnees et encodees, avec ponderation des classes pour tenir compte de la part minoritaire des departs.
+Le modele retenu est une regression logistique interpretable. Il a ete entraine sur les donnees nettoyees, dedoublonnees et encodees, en utilisant **toutes les variables exploitables** du dataset. Seul `employee_id` est exclu, car il s'agit d'un identifiant technique.
 """
             ),
             code_cell(
@@ -999,6 +1006,7 @@ test_metrics = classification_metrics(prepared.y_test, test_scores, threshold=be
 
 pd.DataFrame(
     [
+        ("Features utilisees apres encodage", len(prepared.feature_names)),
         ("ROC-AUC", roc_auc_score_manual(prepared.y_test, test_scores)),
         ("PR-AUC", pr_auc_score_manual(prepared.y_test, test_scores)),
         ("Recall", test_metrics["recall"]),
@@ -1020,6 +1028,7 @@ coefficient_importance(model, prepared.feature_names, top_n=15)
 
 - Les performances du modele sont **solides** sur ce dataset, ce qui rend la priorisation des populations a risque plus credible.
 - Les variables les plus contributives vont dans le sens des analyses descriptives : **absenteisme**, **heures supplementaires**, **securite psychologique**, **mobilite interne** et **engagement** participent fortement au signal.
+- Le modele utilise desormais l'ensemble des variables exploitables, y compris les variables qualitatives encodees et les variables ajoutees comme `years_at_company` ou `accented_name_flag`.
 - Ce resultat suggere que le dataset actuel embarque un signal predictif nettement plus exploitable qu'un simple bruit organisationnel diffus.
 """
             ),
@@ -1027,7 +1036,7 @@ coefficient_importance(model, prepared.feature_names, top_n=15)
                 """
 ## Experience complementaire : detection d'anomalie
 
-Une approche alternative a egalement ete testee : la **detection d'anomalie**. L'idee consiste a apprendre le profil "habituel" des collaborateurs qui restent, puis a identifier les profils qui s'en ecartent le plus.
+Une approche alternative a egalement ete testee : la **detection d'anomalie**. L'idee consiste a apprendre le profil "habituel" des collaborateurs qui restent, puis a identifier les profils qui s'en ecartent le plus. Cette experience utilise elle aussi toutes les variables exploitables apres encodage, afin d'etre comparable au modele supervise.
 """
             ),
             code_cell(
@@ -1074,6 +1083,7 @@ pd.DataFrame(
             "Regression logistique ponderee",
             roc_auc_score_manual(prepared.y_test, test_scores),
             pr_auc_score_manual(prepared.y_test, test_scores),
+            test_metrics["precision"],
             test_metrics["recall"],
             test_metrics["f1_score"],
         ),
@@ -1081,6 +1091,7 @@ pd.DataFrame(
             "Random oversampling",
             roc_auc_score_manual(prepared.y_test, oversampled_test_scores),
             pr_auc_score_manual(prepared.y_test, oversampled_test_scores),
+            oversampled_metrics["precision"],
             oversampled_metrics["recall"],
             oversampled_metrics["f1_score"],
         ),
@@ -1088,11 +1099,12 @@ pd.DataFrame(
             "Detection d'anomalie",
             roc_auc_score_manual(numeric_data.y_test, anomaly_test_scores),
             pr_auc_score_manual(numeric_data.y_test, anomaly_test_scores),
+            anomaly_metrics["precision"],
             anomaly_metrics["recall"],
             anomaly_metrics["f1_score"],
         ),
     ],
-    columns=["Approche", "ROC-AUC", "PR-AUC", "Recall", "F1-score"],
+    columns=["Approche", "ROC-AUC", "PR-AUC", "Precision", "Recall", "F1-score"],
 ).round(4)
 """
             ),
@@ -1100,9 +1112,9 @@ pd.DataFrame(
                 """
 ### Lecture de cette experience
 
-- La detection d'anomalie n'est **pas superieure** au modele supervise en capacite globale de classement.
-- Elle detecte egalement **moins de departs** que la regression logistique dans cette configuration.
-- Cette approche peut donc etre utile comme **benchmark exploratoire**, mais pas comme solution principale de prediction sur ce dataset.
+- La regression logistique ponderee reste l'approche la plus pertinente : elle combine performance solide et interpretation metier.
+- L'oversampling n'ameliore pas vraiment le modele : il modifie legerement le compromis precision/recall, mais n'apporte pas de gain net.
+- La detection d'anomalie devient nettement moins convaincante lorsque toutes les variables sont prises en compte : son `ROC-AUC` est proche de 0,50, ce qui indique une capacite de classement tres limitee.
 """
             ),
             md_cell(
@@ -1112,8 +1124,9 @@ pd.DataFrame(
 1. Renforcer le suivi des populations a risque dans les segments les plus exposes : **Espagne**, **France**, ainsi que les departements **HR**, **Finance** et **Sales**.
 2. Utiliser la **securite psychologique**, l'**absenteisme**, la **charge de travail** et l'**engagement** comme signaux de prevention a traiter en priorite.
 3. Cibler davantage les actions de **mobilite interne**, de **promotion** et d'integration des collaborateurs les moins anciens pour soutenir la retention.
-4. Realiser un audit complementaire sur la **structure de remuneration**, en particulier sur les ecarts par genre, poste, pays et niveau.
-5. Encadrer strictement l'usage des variables sensibles ou discutables (`gender`, `accented_name_flag`) et enrichir le dataset avec des variables plus directement causales : historique managerial, changements d'equipe, enquetes qualitatives, intentions de mobilite, etc.
+4. Investiguer specifiquement les populations **parents + forte surcharge**, ou l'ecart d'attrition femmes/hommes est tres marque.
+5. Realiser un audit complementaire sur la **structure de remuneration**, en particulier sur les ecarts par genre, poste, pays et niveau.
+6. Encadrer strictement l'usage des variables sensibles ou discutables (`gender`, `accented_name_flag`) et enrichir le dataset avec des variables plus directement causales : historique managerial, changements d'equipe, enquetes qualitatives, intentions de mobilite, etc.
 """
             ),
             md_cell(
@@ -1123,6 +1136,7 @@ pd.DataFrame(
 - Dataset unique, sans validation temporelle ni test sur une autre cohorte
 - Certaines variables peuvent etre tres proches du phenomene a predire, ce qui peut gonfler artificiellement la performance
 - Certaines variables peuvent poser des questions d'equite et d'ethique
+- L'utilisation de toutes les variables ameliore l'exhaustivite du modele, mais impose une vigilance accrue sur les variables sensibles et les variables potentiellement proxy
 - Resultats a confirmer avant toute utilisation operationnelle large
 
 La suite logique serait de completer l'approche quantitative par des entretiens RH et une meilleure historisation des evenements de carriere.
@@ -1147,6 +1161,7 @@ Format court, redige pour un comite de direction. Ce notebook peut etre exporte 
 - L'entreprise presente un **turnover eleve (18,77 %)**, avec des poches de risque bien identifiees.
 - Les principaux signaux lies au depart sont une **securite psychologique plus faible**, un **absenteisme plus eleve**, davantage d'**heures supplementaires**, moins de **mobilite interne** et un **engagement plus bas**.
 - Les zones a surveiller en priorite sont **l'Espagne**, **la France**, ainsi que les departements **HR**, **Finance** et **Sales**.
+- Les analyses croisees confirment trois leviers prioritaires : **mobilite interne**, **securite psychologique en contexte de surcharge**, et vigilance sur les **parents en forte charge de travail**.
 """
             ),
             code_cell(
@@ -1179,8 +1194,9 @@ Le modele detecte un **signal exploitable** :
 
 - il est utile pour orienter la vigilance RH et prioriser les actions de retention
 - il ne doit pas etre utilise seul pour prendre des decisions individuelles
-- il confirme l'importance de la securite psychologique, de l'absenteisme, de l'engagement, de la mobilite interne et de la charge de travail dans la lecture du risque
-- une experience de **detection d'anomalie** a egalement ete testee : elle reste moins robuste que le modele supervise
+- il utilise toutes les variables exploitables du dataset, hors identifiant technique `employee_id`
+- il confirme l'importance de la securite psychologique, de l'absenteisme, de l'engagement, de la mobilite interne, de l'anciennete et de la charge de travail dans la lecture du risque
+- l'oversampling n'apporte pas de gain net ; la **detection d'anomalie** reste nettement moins robuste que le modele supervise
 """
             ),
             code_cell(
@@ -1193,8 +1209,9 @@ scores = model.predict_proba(prepared.X_test)
 
 pd.DataFrame(
     {
-        "Metrique": ["ROC-AUC", "PR-AUC", "Recall", "Precision"],
+        "Metrique": ["Features utilisees", "ROC-AUC", "PR-AUC", "Recall", "Precision"],
         "Valeur": [
+            len(prepared.feature_names),
             roc_auc_score_manual(prepared.y_test, scores),
             pr_auc_score_manual(prepared.y_test, scores),
             classification_metrics(prepared.y_test, scores, threshold=best_threshold["threshold"])["recall"],
@@ -1211,8 +1228,9 @@ pd.DataFrame(
 1. Prioriser les plans d'action RH sur les segments les plus exposes au turnover.
 2. Integrer l'engagement, la securite psychologique, l'absenteisme et la charge de travail dans un dispositif de veille RH trimestriel.
 3. Renforcer les parcours de mobilite, de promotion et d'integration des profils les moins anciens comme leviers de retention.
-4. Lancer une analyse plus fine de l'equite salariale et du role des variables sensibles.
-5. Ameliorer la qualite des donnees, encadrer l'usage des variables sensibles et confirmer les resultats sur de nouvelles cohortes avant toute utilisation plus large.
+4. Traiter les situations de forte surcharge, en particulier chez les parents, avec une lecture specifique des ecarts femmes/hommes.
+5. Lancer une analyse plus fine de l'equite salariale et du role des variables sensibles.
+6. Ameliorer la qualite des donnees, encadrer l'usage des variables sensibles et confirmer les resultats sur de nouvelles cohortes avant toute utilisation plus large.
 """
             ),
         ]
